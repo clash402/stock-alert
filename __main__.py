@@ -1,4 +1,5 @@
 import requests as req
+
 from decouple import config
 from twilio.rest import Client
 
@@ -9,7 +10,7 @@ COMPANY_NAME = "Tesla Inc"
 
 
 # STOCK
-def get_stock_closing_prices(stock_name):
+def get_stock_closing_price(stock_name, day: int):
     alpha_vantage_endpoint = "https://www.alphavantage.co/query"
     alpha_vantage_key = config("ALPHA_VANTAGE_KEY")
     alpha_vantage_params = {"apikey": alpha_vantage_key, "function": "TIME_SERIES_DAILY", "symbol": stock_name}
@@ -20,22 +21,18 @@ def get_stock_closing_prices(stock_name):
     data = res.json()["Time Series (Daily)"]
     data_list = [value for (_, value) in data.items()]
 
-    yesterdays_data = data_list[0]
-    yesterdays_closing_price = yesterdays_data["4. close"]
-    day_before_yesterdays_closing_price = data_list[1]["4. close"]
-
-    return yesterdays_closing_price, day_before_yesterdays_closing_price
+    return data_list[day]["4. close"]
 
 
-def get_difference(closing_prices):
-    return float(closing_prices[0]) - float(closing_prices[1])
+def get_difference(one_days_ago_closing_price, two_days_ago_closing_price):
+    return float(one_days_ago_closing_price) - float(two_days_ago_closing_price)
 
 
-def round_difference(difference, closing_prices):
-    return round((difference / float(closing_prices[0])) * 100)
+def round_difference(difference, one_days_ago_closing_price):
+    return round((difference / float(one_days_ago_closing_price)) * 100)
 
 
-def compare_difference(difference):
+def get_up_down_emoji(difference):
     if difference > 0:
         return "🔺"
     else:
@@ -43,7 +40,7 @@ def compare_difference(difference):
 
 
 # NEWS
-def get_latest_articles(company_name, stock_name, up_down, difference_rounded):
+def get_latest_articles(company_name, stock_name, up_down_emoji, difference_rounded):
     news_api_endpoint = "https://newsapi.org/v2/everything"
     news_api_key = config("NEWS_API_KEY")
     news_api_params = {"apiKey": news_api_key, "qInTitle": company_name}
@@ -54,15 +51,15 @@ def get_latest_articles(company_name, stock_name, up_down, difference_rounded):
     articles = res.json()["articles"]
     latest_three_articles = articles[:3]
 
-    return [f"{stock_name}: {up_down}{difference_rounded}%\n\n"
+    return [f"{stock_name}: {up_down_emoji}{difference_rounded}%\n\n"
             f"Headline:\n{article['title']}. \n\n"
             f"Brief:\n{article['description']}" for article in latest_three_articles]
 
 
 # MESSAGE
-def will_send_message(company_name, stock_name, up_down, difference_rounded):
+def will_send_message(company_name, stock_name, up_down_emoji, difference_rounded):
     if abs(difference_rounded) > 1:
-        latest_articles = get_latest_articles(company_name, stock_name, up_down, difference_rounded)
+        latest_articles = get_latest_articles(company_name, stock_name, up_down_emoji, difference_rounded)
 
         twilio_sid = config("TWILIO_SID")
         twilio_auth_token = config("TWILIO_AUTH_TOKEN")
@@ -77,9 +74,10 @@ def will_send_message(company_name, stock_name, up_down, difference_rounded):
 
 
 # MAIN
-closing_prices = get_stock_closing_prices(STOCK_NAME)
-difference = get_difference(closing_prices)
-difference_rounded = round_difference(difference, closing_prices)
-up_down = compare_difference(difference)
+one_days_ago_closing_price = get_stock_closing_price(STOCK_NAME, 0)
+two_days_ago_closing_price = get_stock_closing_price(STOCK_NAME, 1)
+difference = get_difference(one_days_ago_closing_price, two_days_ago_closing_price)
+difference_rounded = round_difference(difference, one_days_ago_closing_price)
+up_down_emoji = get_up_down_emoji(difference)
 
-will_send_message(COMPANY_NAME, STOCK_NAME, up_down, difference_rounded)
+will_send_message(COMPANY_NAME, STOCK_NAME, up_down_emoji, difference_rounded)
